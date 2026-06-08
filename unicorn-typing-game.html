@@ -1,0 +1,1084 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Magic Typing Game 🦄</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1a0a2e;
+    font-family: 'Comic Sans MS', 'Chalkboard SE', cursive;
+    overflow: hidden;
+    width: 100vw; height: 100vh;
+    user-select: none;
+  }
+  #game-container { position: relative; width: 100vw; height: 100vh; }
+
+  /* Background image */
+  #bg-canvas { display: none; }
+
+  #bg-img {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    background-size: cover;
+    background-position: center center;
+    background-repeat: no-repeat;
+  }
+
+  /* Puzzle cells */
+  .puzzle-cell {
+    position: absolute;
+    pointer-events: none;
+    overflow: visible;
+  }
+  .puzzle-cell svg {
+    position: absolute; top: 0; left: 0;
+    overflow: visible;
+  }
+  .word-tile {
+    position: absolute;
+    color: #fff;
+    font-weight: bold;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.95), 0 0 4px rgba(0,0,0,0.95);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    pointer-events: none;
+    line-height: 1;
+    white-space: nowrap;
+    transform: translate(-50%, -50%);
+  }
+  .word-tile .letter { display: inline-block; transition: all 0.3s ease; }
+  .word-tile .letter.typed { opacity: 0; transform: scale(0) rotate(20deg); }
+  .puzzle-cell.completed { opacity: 0; transition: opacity 0.4s; }
+
+  /* Active piece glow */
+  .puzzle-cell.active-piece svg { animation: piece-glow 0.65s infinite alternate; }
+  @keyframes piece-glow {
+    from { filter: drop-shadow(0 0 5px currentColor) drop-shadow(0 0 10px currentColor); }
+    to   { filter: drop-shadow(0 0 14px currentColor) drop-shadow(0 0 28px currentColor) drop-shadow(0 0 44px white); }
+  }
+  .puzzle-cell.active-piece path { stroke-width: 3.5; fill-opacity: 0.35; }
+
+  .word-tile.active .letter:not(.typed) {
+    color: #ffe066;
+    text-shadow: 0 0 12px #ffe066, 0 0 24px #ffaa00, 0 2px 6px rgba(0,0,0,0.9);
+  }
+  .word-tile.active .letter.next-letter {
+    color: #ff88ff;
+    text-shadow: 0 0 14px #ff88ff, 0 0 28px #dd00dd, 0 2px 6px rgba(0,0,0,0.9);
+    animation: pulse 0.6s infinite alternate;
+  }
+  @keyframes pulse { from { transform: scale(1); } to { transform: scale(1.25); } }
+
+  /* HUD */
+  #hud {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 20px; align-items: center; z-index: 100;
+    background: rgba(0,0,0,0.65); padding: 7px 22px; border-radius: 999px;
+    color: #fff; font-size: 16px; white-space: nowrap;
+  }
+  #hud span { color: #ffe066; font-size: 19px; font-weight: bold; }
+  #board-name { color: #ff88ff; }
+
+  #music-btn {
+    position: absolute; bottom: 18px; right: 18px; z-index: 100;
+    background: rgba(0,0,0,0.55); border: 2px solid rgba(255,255,255,0.3);
+    border-radius: 999px; color: #fff; font-size: 17px; padding: 6px 14px;
+    cursor: pointer; font-family: inherit; transition: background 0.2s;
+  }
+  #music-btn:hover { background: rgba(0,0,0,0.85); }
+
+  /* Overlay canvas (dark layer with punch-through holes) */
+  #reveal-canvas { position: absolute; inset: 0; pointer-events: none; }
+
+  @keyframes bounce { from { transform: translateY(0); } to { transform: translateY(-12px); } }
+
+  .burst {
+    position: absolute; pointer-events: none; font-size: 28px;
+    animation: burst-anim 0.7s ease-out forwards; z-index: 150;
+  }
+  @keyframes burst-anim {
+    0%   { transform: scale(0.5) translateY(0); opacity: 1; }
+    100% { transform: scale(1.5) translateY(-60px); opacity: 0; }
+  }
+
+  #board-dots {
+    position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 10px; z-index: 100;
+  }
+  .dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: rgba(255,255,255,0.3); border: 2px solid rgba(255,255,255,0.5);
+    transition: background 0.3s;
+  }
+  .dot.active { background: #ffe066; border-color: #ffe066; }
+  .dot.done   { background: #88ff88; border-color: #88ff88; }
+
+  /* ── Name prompt overlay ── */
+  #name-prompt {
+    display: none; position: absolute; inset: 0; background: rgba(0,0,0,0.78);
+    z-index: 300; flex-direction: column; align-items: center; justify-content: center;
+    color: #fff; text-align: center; gap: 18px;
+  }
+  #name-prompt h2 { font-size: clamp(24px,5vw,52px); color: #ffe066; text-shadow: 0 0 20px #ffaa00; }
+  #name-prompt p  { font-size: 20px; color: #ff88ff; }
+  #name-input {
+    font-size: 26px; font-family: inherit; padding: 10px 24px;
+    border-radius: 999px; border: 3px solid #ffe066; background: rgba(255,255,255,0.12);
+    color: #fff; text-align: center; outline: none; width: min(380px, 80vw);
+  }
+  #name-input::placeholder { color: rgba(255,255,255,0.4); }
+  #name-submit {
+    padding: 12px 36px; font-size: 22px; font-family: inherit;
+    background: linear-gradient(135deg, #ff88ff, #ffe066); border: none;
+    border-radius: 999px; cursor: pointer; font-weight: bold; color: #1a0a2e;
+    box-shadow: 0 4px 20px rgba(255,200,100,0.5); transition: transform 0.2s;
+  }
+  #name-submit:hover { transform: scale(1.07); }
+
+  /* ── Leaderboard overlay ── */
+  #leaderboard-screen {
+    display: none; position: absolute; inset: 0; background: rgba(10,5,30,0.92);
+    z-index: 300; flex-direction: column; align-items: center; justify-content: flex-start;
+    color: #fff; text-align: center; overflow-y: auto; padding: 28px 16px 24px;
+  }
+  #leaderboard-screen h2 {
+    font-size: clamp(26px,5vw,52px); color: #ffe066;
+    text-shadow: 0 0 20px #ffaa00; margin-bottom: 6px;
+  }
+  #leaderboard-screen .lb-pic-label {
+    font-size: 18px; color: #ff88ff; margin-bottom: 14px;
+  }
+  #lb-table {
+    width: min(600px, 92vw); border-collapse: collapse; margin-bottom: 20px;
+  }
+  #lb-table th {
+    background: rgba(255,200,100,0.18); color: #ffe066;
+    padding: 8px 14px; font-size: 16px; border-bottom: 2px solid #ffe066aa;
+  }
+  #lb-table td {
+    padding: 7px 14px; font-size: 16px; border-bottom: 1px solid rgba(255,255,255,0.1);
+  }
+  #lb-table tr.lb-new td { color: #ffe066; font-weight: bold; }
+  #lb-table tr:nth-child(even) td { background: rgba(255,255,255,0.04); }
+  .lb-rank { color: #ffaa44; font-weight: bold; }
+  #lb-next-btn {
+    margin-top: 8px; padding: 12px 36px; font-size: 20px; font-family: inherit;
+    background: linear-gradient(135deg, #ff88ff, #ffe066); border: none;
+    border-radius: 999px; cursor: pointer; font-weight: bold; color: #1a0a2e;
+    box-shadow: 0 4px 20px rgba(255,200,100,0.4); transition: transform 0.2s;
+  }
+  #lb-next-btn:hover { transform: scale(1.07); }
+
+  /* ── Grade picker overlay ── */
+  #grade-prompt {
+    display: flex; position: absolute; inset: 0; background: rgba(10,5,30,0.96);
+    z-index: 400; flex-direction: column; align-items: center; justify-content: center;
+    color: #fff; text-align: center; gap: 22px;
+  }
+  #grade-prompt h2 { font-size: clamp(26px,5vw,52px); color: #ffe066; text-shadow: 0 0 20px #ffaa00; }
+  #grade-prompt p  { font-size: 18px; color: #ff88ff; }
+  #grade-buttons   { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; }
+  .grade-btn {
+    padding: 14px 28px; font-size: 20px; font-family: inherit;
+    background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.35);
+    border-radius: 999px; cursor: pointer; color: #fff; font-weight: bold;
+    transition: background 0.2s, transform 0.15s, border-color 0.2s;
+    min-width: 110px;
+  }
+  .grade-btn:hover {
+    background: linear-gradient(135deg,#ff88ff,#ffe066);
+    border-color: transparent; color: #1a0a2e; transform: scale(1.07);
+  }
+
+  /* ── Forward arrow (shown after all words typed) ── */
+  #next-arrow-btn {
+    display: none; position: absolute; bottom: 18px; right: 18px; z-index: 200;
+    background: linear-gradient(135deg, #ff88ff, #ffe066); border: none;
+    border-radius: 999px; font-size: 28px; width: 58px; height: 58px;
+    cursor: pointer; box-shadow: 0 4px 20px rgba(255,200,100,0.6);
+    transition: transform 0.2s; line-height: 1;
+    animation: arrow-pulse 0.8s infinite alternate;
+  }
+  #next-arrow-btn:hover { transform: scale(1.12); }
+  @keyframes arrow-pulse {
+    from { box-shadow: 0 4px 20px rgba(255,200,100,0.5); }
+    to   { box-shadow: 0 4px 32px rgba(255,150,255,0.9); }
+  }
+</style>
+</head>
+<body>
+
+<div id="game-container">
+  <canvas id="bg-canvas"></canvas>
+  <div id="bg-img"></div>
+  <canvas id="reveal-canvas"></canvas>
+
+  <div id="hud">
+    <span id="board-name">🦄</span>
+    &nbsp;Words left: <span id="words-left">0</span>
+    &nbsp;⭐ Score: <span id="score">0</span>
+  </div>
+  <button id="music-btn">🎵 Music: ON</button>
+  <button id="next-arrow-btn">➡️</button>
+  <div id="board-dots"></div>
+
+  <!-- Name entry after each picture -->
+  <div id="name-prompt">
+    <h2>🌟 Picture Revealed! 🌟</h2>
+    <p id="name-score-display"></p>
+    <p>Who's playing? Type your name!</p>
+    <input id="name-input" type="text" maxlength="20" placeholder="Your name here…" autocomplete="off" spellcheck="false">
+    <button id="name-submit">Save Score ✨</button>
+  </div>
+
+  <!-- Grade picker -->
+  <div id="grade-prompt">
+    <h2>🦄 Magic Typing Game 🦄</h2>
+    <p>Choose your grade level!</p>
+    <div id="grade-buttons">
+      <button class="grade-btn" data-grade="K">🌱 Kinder</button>
+      <button class="grade-btn" data-grade="1">⭐ Grade 1</button>
+      <button class="grade-btn" data-grade="2">🌟 Grade 2</button>
+      <button class="grade-btn" data-grade="3">🚀 Grade 3</button>
+      <button class="grade-btn" data-grade="4">🔥 Grade 4</button>
+      <button class="grade-btn" data-grade="5">💎 Grade 5</button>
+    </div>
+  </div>
+
+  <!-- Leaderboard -->
+  <div id="leaderboard-screen">
+    <h2>🏆 Leaderboard</h2>
+    <div class="lb-pic-label" id="lb-pic-label"></div>
+    <table id="lb-table">
+      <thead><tr><th>#</th><th>Name</th><th>Score</th><th>Accuracy</th><th>Picture</th></tr></thead>
+      <tbody id="lb-body"></tbody>
+    </table>
+    <button id="lb-next-btn">▶️ Next Picture</button>
+  </div>
+</div>
+
+<audio id="bg-music" loop>
+  <source src="https://opengameart.org/sites/default/files/happy_adveture.mp3" type="audio/mpeg">
+</audio>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════════
+// SCENE PAINTERS — each receives (ctx, W, H) and fills the canvas with a
+// richly detailed, fully hand-drawn kid-friendly illustration.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const BOARDS = [
+  { name: '🐕 Bluey',            img: 'Images/bluey.jpg'              },
+  { name: '❄️ Frozen',           img: 'Images/frozen.jpg'             },
+  { name: '❄️ Frozen 2',         img: 'Images/frozen 2.webp'          },
+  { name: '🌊 Moana',            img: 'Images/moana.jpg'              },
+  { name: '⚡ Thundermans',      img: 'Images/thundermans.jpg'        },
+  { name: '⚡ Thundermans',      img: 'Images/thundermans 2.jpg'      },
+  { name: '⚡ Thundermans',      img: 'Images/thundermans 3.jpg'      },
+  { name: '⚾ League of Their Own',  img: 'Images/league of their own.jpg'   },
+  { name: '⚾ League of Their Own',  img: 'Images/league of their own 2.jpg' },
+  { name: '🌟 Nick Girls',       img: 'Images/Nick Girls.jpg'         },
+  { name: '🦋 Phoebe',           img: 'Images/Phoebe.jpg'             },
+  { name: '✨ Picture 2',        img: 'Images/P2.jpg'                 },
+  { name: '✨ Picture 3',        img: 'Images/p3.jpg'                 },
+];
+
+// ─── (scene painters removed — using local images) ───────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// WORD LISTS — organized by grade level
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Kindergarten: 2–3 letter CVC words and basic sight words
+const GRADE_K = [
+  'am','an','as','at','be','by','do','go','he','hi','if','in','is','it',
+  'me','my','no','of','on','or','so','to','up','us','we',
+  'and','are','but','can','did','for','get','got','had','has','her',
+  'him','his','how','let','not','now','off','old','one','our','out',
+  'put','ran','run','see','she','the','too','two','was','who','yes',
+  'you','all','big','bit','box','bug','bus','cat','cup','dog','dot',
+  'egg','fan','fat','fig','fun','hat','hen','hop','hot','hug','hut',
+  'jam','jar','jet','jog','jug','kid','leg','lip','log','lot','low',
+  'mad','man','map','mat','mix','mop','mud','nap','net','nod','owl',
+  'paw','pen','pet','pig','pit','pop','pot','pup','rat','red','rip',
+  'rot','sad','sat','saw','say','set','sip','sit','six','sky','sun',
+  'tag','tan','tap','ten','tip','top','tug','van','vet','web','wet',
+  'win','zip','zoo'
+];
+
+// Grade 1: common sight words, short vowel patterns, blends
+const GRADE_1 = [
+  'back','ball','barn','bath','bear','beat','bell','belt','best','bird',
+  'bite','blow','blue','boat','bold','bolt','bone','book','boot','born',
+  'both','bowl','bump','burn','bush','busy','buzz','cage','cake','call',
+  'calm','camp','card','care','cart','cave','chew','chip','chop','clap',
+  'clay','clip','club','clue','coat','coin','cold','come','cook','cool',
+  'cord','corn','cost','crab','crop','crow','cure','cute','dark','dash',
+  'dawn','deep','deer','desk','dirt','dish','dock','done','door','dove',
+  'down','draw','drip','drop','drum','duck','dull','dump','dusk','dust',
+  'each','earn','east','edge','even','ever','face','fact','fail','fair',
+  'fall','farm','fast','feel','feet','fell','felt','fill','find','fire',
+  'fish','flag','flat','flew','flip','flow','foam','fold','fond','food',
+  'foot','fork','form','four','free','from','frog','full','fund','game',
+  'gate','gave','gift','give','glad','glow','glue','goal','goat','gold',
+  'gone','good','grab','gray','grew','grin','grip','grow','gust','hail',
+  'half','hall','hand','hang','hard','harm','haul','head','heal','heap',
+  'heat','heel','held','help','here','hero','hide','high','hill','hint',
+  'hold','hole','home','hoof','hook','hope','horn','hose','host','howl',
+  'huge','hunt','hurt','inch','into','iron','item','jump','just','keen',
+  'keep','kick','kind','king','knee','knew','know','lace','lake','lamb',
+  'lamp','land','lane','last','late','lawn','lead','leaf','lean','left',
+  'life','lift','like','lime','line','lion','list','live','lock','long',
+  'look','lost','loud','love','luck','lump','made','mane','many','mark',
+  'mask','math','meal','meet','melt','mice','mild','milk','mill','mind',
+  'mint','miss','moon','more','most','moth','move','much','name','neat',
+  'neck','need','nest','next','nice','nine','nose','note','only','open',
+  'oven','over','page','park','part','past','path','peak','pear','peel',
+  'pick','pile','pine','pink','pipe','plan','play','plum','plus','pole',
+  'pool','poor','port','post','pour','pull','pump','push','race','rain',
+  'rake','read','real','reef','rest','rice','rich','ride','ring','rise',
+  'road','roar','rock','roll','roof','room','rope','rose','rush','safe',
+  'sail','sale','salt','same','sand','save','seed','sell','shed','ship',
+  'shop','show','shut','sick','silk','sing','sink','size','skin','skip',
+  'sled','slim','slip','slow','snap','snow','soap','sock','soft','soil',
+  'sold','some','song','soon','sort','soup','spin','spot','star','stay',
+  'step','stop','such','suit','swim','tail','tale','talk','tall','tame',
+  'tape','team','tell','tent','test','them','then','they','thin','this',
+  'tile','time','tiny','toad','told','took','tool','town','tree','trip',
+  'trot','true','tube','tuck','tuna','twin','type','very','vine','wade',
+  'wake','walk','wall','wand','warm','wash','wave','weed','week','well',
+  'went','wide','wild','will','wind','wing','wish','with','wolf','wood',
+  'wool','word','work','worm','yard','year','yell','your','zone'
+];
+
+// Grade 2: longer sight words, vowel teams, blends, digraphs
+const GRADE_2 = [
+  'acorn','angel','apple','beach','black','blank','blast','blaze','blend',
+  'bless','blink','block','bloom','blown','board','brain','brand','brave',
+  'bread','break','breed','brick','bride','bring','brisk','brook','brown',
+  'brush','bunny','cabin','candy','carry','catch','chair','chalk','charm',
+  'chase','cheek','cheer','chest','child','chirp','chore','class','clean',
+  'clear','climb','clock','close','cloud','clown','coach','coral','could',
+  'count','cover','crack','crane','crawl','cream','creek','crisp','cross',
+  'crown','crumb','crush','daisy','dance','dizzy','dream','dress','drink',
+  'drive','eagle','earth','elbow','every','fable','fairy','fancy','feast',
+  'fence','field','flame','flash','float','floor','found','fresh','front',
+  'frost','fruit','funny','fuzzy','giant','glass','glide','globe','glove',
+  'grace','grain','grand','graze','great','green','greet','grill','groan',
+  'group','grove','growl','grown','guess','guest','guide','gummy','happy',
+  'hatch','heart','heavy','honey','horse','house','juice','juicy','jumpy',
+  'knife','knock','large','laugh','learn','lemon','light','lucky','lunch',
+  'magic','maple','march','match','maybe','melon','money','month','mouse',
+  'mouth','music','never','night','north','nurse','ocean','often','olive',
+  'onion','otter','paint','panda','paper','party','patch','peace','peach',
+  'penny','phone','photo','piano','piece','pilot','pinch','pizza','place',
+  'plain','plane','plant','plate','point','pound','power','press','price',
+  'pride','print','prize','proud','puppy','queen','quest','quick','quiet',
+  'raise','ranch','range','reach','ready','right','river','robin','robot',
+  'rocky','rough','round','royal','ruler','salad','sauce','scale','scare',
+  'scene','scoop','scout','seven','shake','shape','share','sharp','sheep',
+  'shelf','shell','shirt','shock','shoes','shore','short','shout','sight',
+  'silly','skate','skill','sleep','slice','slide','smell','smile','smoke',
+  'snack','snail','snake','sneak','solar','sorry','south','space','spare',
+  'spark','speak','speed','spell','spend','spice','spoon','sport','stack',
+  'stage','stamp','stand','stare','start','steam','steel','stick','still',
+  'sting','stone','store','storm','story','stove','straw','strip','study',
+  'stump','style','sugar','sunny','super','sweet','swift','swing','swirl',
+  'sword','syrup','table','taste','teach','teeth','thank','there','these',
+  'thick','thing','think','thorn','those','three','throw','thumb','tiger',
+  'timer','tired','toast','today','torch','total','touch','tough','towel',
+  'tower','track','train','trash','trick','truck','trunk','trust','truth',
+  'tulip','uncle','under','until','upset','watch','water','whale','wheat',
+  'wheel','where','which','while','white','whole','witch','woman','world',
+  'worry','worth','would','write','wrong','young','youth','zebra'
+];
+
+// Grade 3: more complex words, prefixes/suffixes, multisyllabic
+const GRADE_3 = [
+  'absent','action','animal','answer','around','author','basket','battle',
+  'beauty','before','behind','belong','better','bottle','bottom','bought',
+  'bridge','bright','broken','brought','bubble','button','buying','candle',
+  'cannot','castle','center','change','charge','choice','choose','chosen',
+  'circle','cities','clever','colder','coming','corner','cotton','cough',
+  'cousin','create','danger','darken','decide','desert','detail','differ',
+  'dinner','doctor','dollar','double','either','empire','ending','enough',
+  'entire','escape','events','except','excite','expect','fatter','feather',
+  'figure','finger','finish','flight','follow','forget','formal','frozen',
+  'future','garden','gather','gentle','gotten','gravel','gravel','greedy',
+  'happen','harder','health','hidden','higher','honest','hunger','hunter',
+  'ignore','insect','inside','invent','island','jungle','keeper','kitten',
+  'ladder','landed','larger','lately','laughter','leader','lessen','lesson',
+  'letter','little','longer','louder','lowest','master','matter','meadow',
+  'middle','mirror','mister','modern','moment','monkey','monster','mother',
+  'needle','nicely','nobody','normal','notice','number','nutmeg','object',
+  'office','orange','pebble','pencil','people','pepper','person','pillow',
+  'planet','pocket','potato','pretty','prince','prison','profit','public',
+  'purple','puzzle','rabbit','reason','remain','rescue','ribbon','riddle',
+  'rocket','rubber','sadder','safety','sample','season','secret','sender',
+  'sentence','settle','shadow','signal','silver','simple','sister','skyline',
+  'slender','slower','smooth','softer','spoken','spring','square','starve',
+  'statue','stayed','steady','stolen','stream','street','strict','string',
+  'strong','struck','summer','supper','surely','system','target','taller',
+  'temple','tender','tickle','tighten','timber','tissue','toddle','toggle',
+  'tomato','toward','travel','treble','tremble','triple','trouble','tunnel',
+  'turkey','turtle','twenty','twinkle','typhoon','uncover','unique','update',
+  'useful','valley','velvet','versus','victim','victor','violet','vision',
+  'waffle','wallet','walnut','warmer','weaken','wealth','weapon','weekly',
+  'whether','window','winner','winter','within','wonder','wooden','worker'
+];
+
+// Grade 4: academic vocabulary, prefixes, roots
+const GRADE_4 = [
+  'ability','absence','abstract','accident','account','accurate','achieve',
+  'actual','addition','address','advance','affect','against','ancient',
+  'annual','appear','arrange','article','athlete','attempt','attract',
+  'balance','because','breathe','brother','cabinet','capture','capital',
+  'captain','century','chapter','climate','collect','comfort','command',
+  'complete','concern','confirm','connect','consider','contain','control',
+  'courage','current','customs','damaged','decimal','declare','defense',
+  'delicate','deliver','depend','descent','deserve','diamond','display',
+  'distant','divide','despite','dynamic','earnest','eastern','educate',
+  'element','emotion','endless','enforce','enhance','enough','entire',
+  'examine','example','exclude','expand','explore','express','extreme',
+  'factory','failure','feature','federal','fertile','forever','formula',
+  'forward','freedom','general','genuine','glacier','glorious','gravity',
+  'grocery','habitat','harmony','helpful','history','hundred','imagine',
+  'improve','include','increase','indeed','inflate','inform','inherit',
+  'install','instead','involve','justice','kingdom','knowing','language',
+  'largest','learned','liberty','logical','loyalty','machine','managed',
+  'maximum','meaning','measure','mention','message','million','minimum',
+  'mission','mixture','morning','mystery','natural','network','nothing',
+  'observe','obvious','opinion','outcome','outside','overcome','passage',
+  'patience','pattern','payment','percent','perhaps','picture','popular',
+  'possess','present','prevent','primary','private','process','produce',
+  'program','promise','protect','provide','publish','purpose','quality',
+  'quarter','quickly','realize','rebuild','receive','reduce','reflect',
+  'refuse','region','regular','release','remove','replace','require',
+  'respect','respond','restore','reveal','review','reward','section',
+  'servant','service','several','similar','society','soldier','special',
+  'storage','succeed','suggest','support','surface','survive','teacher',
+  'textile','theater','through','thunder','together','trading','typical',
+  'unknown','unusual','upgrade','variety','venture','version','village',
+  'visible','western','witness','without'
+];
+
+// Grade 5: complex vocabulary, Latin/Greek roots, figurative language
+const GRADE_5 = [
+  'abolish','absolute','abundant','accurate','achieve','activity','actually',
+  'adequate','adjacent','admirable','admitted','advanced','advantage',
+  'advocate','affection','affirm','against','aggravate','aggressive',
+  'amiable','analyze','announce','apparent','appendix','approach',
+  'argument','assembly','asteroid','athletes','attribute','audience',
+  'authentic','available','backbone','bacteria','behavior','benefactor',
+  'beneath','biosphere','boundary','calculate','campaign','capacity',
+  'category','cautious','certainly','champion','chemical','circular',
+  'combine','communal','complex','compound','concept','conclude',
+  'condemn','conflict','conquer','conscience','consider','constant',
+  'construct','consumed','contrast','contribute','convince','cooperate',
+  'creative','criminal','criteria','criticize','currency','cylinder',
+  'decisive','democracy','dependent','describe','determine','develop',
+  'diameter','different','difficult','diligent','discover','dramatic',
+  'economy','effective','elaborate','eliminate','emphasize','encounter',
+  'enormous','equality','evaluate','evidence','examine','exceptional',
+  'familiar','flexible','flourish','forecast','fragment','generate',
+  'generous','geometry','gradual','guarantee','guidance','habitual',
+  'heroic','hesitate','humanity','humorous','identify','illuminate',
+  'imaginary','immediate','immense','indicate','influence','inquire',
+  'inspired','intensity','intimate','justify','knowledge','leadership',
+  'legendary','maintain','manifest','majority','mechanical','medieval',
+  'minority','moderate','momentum','moreover','motivate','narrative',
+  'negotiate','numerous','objective','observe','obstacle','organize',
+  'original','overcome','paragraph','parallel','patience','peculiar',
+  'perceive','permanent','persuade','physical','political','position',
+  'potential','previous','priority','privilege','probably','productive',
+  'profound','progress','prominent','property','propose','quantity',
+  'rational','recognize','recommend','represent','research','resource',
+  'responsible','revolution','sequence','significant','simplify','solution',
+  'strength','struggle','structure','substantial','summarize','superior',
+  'technique','technology','territory','thorough','tolerance','tradition',
+  'transform','translate','tropical','unanimous','uncertainty','unique',
+  'universal','valuable','variation','vocabulary','volunteer','wilderness'
+];
+
+// Grade → word list(s) mapping. Higher grades include simpler words too.
+const GRADE_WORDS = {
+  'K': { lists: [GRADE_K],                              maxLen: 3 },
+  '1': { lists: [GRADE_K, GRADE_1],                     maxLen: 4 },
+  '2': { lists: [GRADE_1, GRADE_2],                     maxLen: 5 },
+  '3': { lists: [GRADE_2, GRADE_3],                     maxLen: 6 },
+  '4': { lists: [GRADE_3, GRADE_4],                     maxLen: 8 },
+  '5': { lists: [GRADE_4, GRADE_5],                     maxLen: 9 },
+};
+
+let selectedGrade = null;
+
+function buildWordPool(n) {
+  const grade = GRADE_WORDS[selectedGrade] || GRADE_WORDS['2'];
+  const combined = grade.lists.flat().filter(w => w.length <= grade.maxLen);
+  const unique = [...new Set(combined)];
+  const shuffled = unique.sort(() => Math.random() - 0.5);
+  // Repeat if pool is smaller than needed
+  const pool = [];
+  while (pool.length < n) pool.push(...shuffled);
+  return pool.slice(0, n).sort(() => Math.random() - 0.5);
+}
+
+const COLORS = [
+  '#ff88cc','#ffe066','#88ddff','#cc88ff','#ff9966',
+  '#aaffaa','#ffccaa','#ddaaff','#ffaaee','#aaddff',
+  '#ff6688','#ffdd44','#55eeff','#bb66ff','#ff8855'
+];
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════════════════════
+let wordObjects    = [];
+let activeIndex    = 0;
+let score          = 0;
+let boardIndex     = 0;
+let shuffledOrder  = [];
+let holes          = [];
+let boardScore     = 0;   // score earned on current board
+let totalKeyPresses = 0;  // correct + wrong presses this board
+let totalMistakes   = 0;  // wrong presses this board
+let wordStartTime   = 0;  // ms when current word was activated
+
+function shuffleBoardOrder() {
+  shuffledOrder = BOARDS.map((_, i) => i).sort(() => Math.random() - 0.5);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SPEECH
+// ═══════════════════════════════════════════════════════════════════════════════
+const GIRL_VOICE_NAMES = [
+  'Samantha','Karen','Moira','Tessa','Veena','Fiona',
+  'Victoria','Allison','Ava','Susan','Zira',
+  'Google UK English Female','Google US English'
+];
+let girlVoice = null;
+
+function pickGirlVoice() {
+  const voices = window.speechSynthesis.getVoices();
+  if (!voices.length) return;
+  for (const name of GIRL_VOICE_NAMES) {
+    const v = voices.find(v => v.name === name && v.lang.startsWith('en'));
+    if (v) { girlVoice = v; return; }
+  }
+  for (const name of GIRL_VOICE_NAMES) {
+    const v = voices.find(v => v.name.includes(name) && v.lang.startsWith('en'));
+    if (v) { girlVoice = v; return; }
+  }
+  const v = voices.find(v => v.lang.startsWith('en') &&
+    (v.name.toLowerCase().includes('female') || v.name.toLowerCase().includes('girl')));
+  if (v) { girlVoice = v; return; }
+  if (!girlVoice) girlVoice = voices.find(v => v.lang.startsWith('en')) || null;
+}
+function speakWordThenLetter(word) {
+  if (!window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  const u1 = new SpeechSynthesisUtterance(word);
+  u1.rate = 0.82; u1.pitch = 1.25; u1.volume = 1;
+  if (girlVoice) u1.voice = girlVoice;
+  const u2 = new SpeechSynthesisUtterance(word[0]);
+  u2.rate = 0.88; u2.pitch = 1.3; u2.volume = 1;
+  if (girlVoice) u2.voice = girlVoice;
+  window.speechSynthesis.speak(u1);
+  window.speechSynthesis.speak(u2);
+}
+function speakNextLetter(letter) {
+  if (!window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(letter);
+  u.rate = 0.88; u.pitch = 1.3; u.volume = 1;
+  if (girlVoice) u.voice = girlVoice;
+  window.speechSynthesis.speak(u);
+}
+if (window.speechSynthesis) {
+  pickGirlVoice();
+  window.speechSynthesis.onvoiceschanged = pickGirlVoice;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// AUDIO
+// ═══════════════════════════════════════════════════════════════════════════════
+const bgMusic = document.getElementById('bg-music');
+let musicOn = true, audioCtx = null, musicStarted = false;
+
+function getAudioCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+function playCompleteSound() {
+  const ctx = getAudioCtx(), now = ctx.currentTime;
+  [[523.25,0,.12,.28],[659.25,.10,.12,.28],[783.99,.20,.12,.28],
+   [1046.5,.30,.22,.32],[1318.5,.38,.18,.22],[1567.9,.44,.18,.18]
+  ].forEach(([freq,offset,dur,vol]) => {
+    const osc=ctx.createOscillator(), gain=ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type='triangle'; osc.frequency.value=freq;
+    const t=now+offset;
+    gain.gain.setValueAtTime(0,t);
+    gain.gain.linearRampToValueAtTime(vol,t+.015);
+    gain.gain.exponentialRampToValueAtTime(.001,t+dur);
+    osc.start(t); osc.stop(t+dur+.05);
+  });
+  const sh=ctx.createOscillator(), sg=ctx.createGain();
+  sh.connect(sg); sg.connect(ctx.destination);
+  sh.type='sine';
+  sh.frequency.setValueAtTime(880,now);
+  sh.frequency.linearRampToValueAtTime(1760,now+.5);
+  sg.gain.setValueAtTime(0,now);
+  sg.gain.linearRampToValueAtTime(.08,now+.05);
+  sg.gain.exponentialRampToValueAtTime(.001,now+.55);
+  sh.start(now); sh.stop(now+.6);
+}
+function ensureMusic() {
+  if (musicStarted || !musicOn) return;
+  musicStarted = true;
+  bgMusic.volume = 0.25;
+  bgMusic.play().catch(() => {});
+}
+document.getElementById('music-btn').addEventListener('click', () => {
+  musicOn = !musicOn;
+  document.getElementById('music-btn').textContent = musicOn ? '🎵 Music: ON' : '🔇 Music: OFF';
+  if (musicOn) bgMusic.play().catch(()=>{}); else bgMusic.pause();
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BACKGROUND IMAGE
+// ═══════════════════════════════════════════════════════════════════════════════
+const bgImg = document.getElementById('bg-img');
+
+function resizeBgCanvas() { /* no-op — CSS handles sizing */ }
+function paintBoard(idx) {
+  const board = BOARDS[shuffledOrder[idx]];
+  bgImg.style.backgroundImage = `url('${board.img}')`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// OVERLAY (dark layer + punch-through holes)
+// ═══════════════════════════════════════════════════════════════════════════════
+const revealCanvas = document.getElementById('reveal-canvas');
+const ctx2d = revealCanvas.getContext('2d');
+
+function resizeRevealCanvas() {
+  revealCanvas.width  = window.innerWidth;
+  revealCanvas.height = window.innerHeight;
+  drawOverlay();
+}
+function drawOverlay() {
+  ctx2d.clearRect(0,0,revealCanvas.width,revealCanvas.height);
+  ctx2d.fillStyle = 'rgba(10,5,20,0.88)';
+  ctx2d.fillRect(0,0,revealCanvas.width,revealCanvas.height);
+  ctx2d.globalCompositeOperation = 'destination-out';
+  for (const h of holes) {
+    const g = ctx2d.createRadialGradient(h.x,h.y,0,h.x,h.y,h.r);
+    g.addColorStop(0,  'rgba(0,0,0,1)');
+    g.addColorStop(.7, 'rgba(0,0,0,0.9)');
+    g.addColorStop(1,  'rgba(0,0,0,0)');
+    ctx2d.beginPath(); ctx2d.arc(h.x,h.y,h.r,0,Math.PI*2);
+    ctx2d.fillStyle=g; ctx2d.fill();
+  }
+  ctx2d.globalCompositeOperation = 'source-over';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BOARD DOTS
+// ═══════════════════════════════════════════════════════════════════════════════
+function renderDots() {
+  const c = document.getElementById('board-dots');
+  c.innerHTML = '';
+  BOARDS.forEach((_,i) => {
+    const d = document.createElement('div');
+    d.className = 'dot'+(i===boardIndex?' active':i<boardIndex?' done':'');
+    c.appendChild(d);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LOAD BOARD
+// ═══════════════════════════════════════════════════════════════════════════════
+function loadBoard(idx) {
+  boardIndex = idx % BOARDS.length;
+  const board = BOARDS[shuffledOrder[boardIndex]];
+  document.getElementById('board-name').textContent = board.name;
+  holes = [];
+  boardScore = 0;
+  totalKeyPresses = 0;
+  totalMistakes = 0;
+  hideNextArrow();
+  paintBoard(boardIndex);
+  drawOverlay();
+  renderDots();
+  scatterWords();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PUZZLE PATH GENERATOR
+// ═══════════════════════════════════════════════════════════════════════════════
+function puzzlePath(cw, ch, T, topTab, rightTab, bottomTab, leftTab) {
+  const hw=cw/2, hh=ch/2;
+  let d=`M 0,0 `;
+  d+=`L ${hw-T},0 `;
+  d+= topTab
+    ? `C ${hw-T},${-T*1.5} ${hw+T},${-T*1.5} ${hw+T},0 `
+    : `C ${hw-T},${T*1.5} ${hw+T},${T*1.5} ${hw+T},0 `;
+  d+=`L ${cw},0 `;
+  d+=`L ${cw},${hh-T} `;
+  d+= rightTab
+    ? `C ${cw+T*1.5},${hh-T} ${cw+T*1.5},${hh+T} ${cw},${hh+T} `
+    : `C ${cw-T*1.5},${hh-T} ${cw-T*1.5},${hh+T} ${cw},${hh+T} `;
+  d+=`L ${cw},${ch} `;
+  d+=`L ${hw+T},${ch} `;
+  d+= bottomTab
+    ? `C ${hw+T},${ch+T*1.5} ${hw-T},${ch+T*1.5} ${hw-T},${ch} `
+    : `C ${hw+T},${ch-T*1.5} ${hw-T},${ch-T*1.5} ${hw-T},${ch} `;
+  d+=`L 0,${ch} `;
+  d+=`L 0,${hh+T} `;
+  d+= leftTab
+    ? `C ${-T*1.5},${hh+T} ${-T*1.5},${hh-T} 0,${hh-T} `
+    : `C ${T*1.5},${hh+T} ${T*1.5},${hh-T} 0,${hh-T} `;
+  d+=`L 0,0 Z`;
+  return d;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SCATTER WORDS (full-screen grid)
+// ═══════════════════════════════════════════════════════════════════════════════
+function scatterWords() {
+  const container = document.getElementById('game-container');
+  document.querySelectorAll('.puzzle-cell').forEach(el => el.remove());
+  wordObjects = [];
+
+  const W=window.innerWidth, H=window.innerHeight;
+  const isEasy = selectedGrade==='K' || selectedGrade==='1';
+  const COLS=isEasy?4:5, ROWS=isEasy?2:4;
+  const cellW=W/COLS, cellH=H/ROWS;
+  const T=Math.min(cellW,cellH)*.18;
+
+  const tabRight  = Array.from({length:ROWS},()=>Array.from({length:COLS-1},()=>Math.random()<.5));
+  const tabBottom = Array.from({length:ROWS-1},()=>Array.from({length:COLS},()=>Math.random()<.5));
+
+  const pool = buildWordPool(COLS*ROWS);
+  let wi=0;
+  const svgNS='http://www.w3.org/2000/svg';
+
+  for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) {
+    const topTab    = r===0      ? false : !tabBottom[r-1][c];
+    const rightTab  = c===COLS-1 ? false :  tabRight[r][c];
+    const bottomTab = r===ROWS-1 ? false :  tabBottom[r][c];
+    const leftTab   = c===0      ? false : !tabRight[r][c-1];
+
+    const color=COLORS[(r*COLS+c)%COLORS.length];
+    const word=pool[wi%pool.length]; wi++;
+    const ox=c*cellW, oy=r*cellH;
+
+    const cell=document.createElement('div');
+    cell.className='puzzle-cell';
+    cell.style.cssText=`left:${ox}px;top:${oy}px;width:${cellW}px;height:${cellH}px;color:${color};`;
+
+    const svg=document.createElementNS(svgNS,'svg');
+    svg.setAttribute('width',cellW);
+    svg.setAttribute('height',cellH);
+    svg.setAttribute('viewBox',`${-T} ${-T} ${cellW+T*2} ${cellH+T*2}`);
+    svg.style.cssText=`position:absolute;left:${-T}px;top:${-T}px;width:${cellW+T*2}px;height:${cellH+T*2}px;overflow:visible;`;
+
+    const path=document.createElementNS(svgNS,'path');
+    path.setAttribute('d',puzzlePath(cellW,cellH,T,topTab,rightTab,bottomTab,leftTab));
+    path.setAttribute('fill',color+'2a');
+    path.setAttribute('stroke',color);
+    path.setAttribute('stroke-width','2');
+    path.setAttribute('stroke-linejoin','round');
+    svg.appendChild(path);
+    cell.appendChild(svg);
+
+    const fontSize=Math.max(14,Math.min(32,Math.floor((cellW*.85)/(word.length*.68))));
+    const el=document.createElement('div');
+    el.className='word-tile';
+    el.style.cssText=`left:50%;top:50%;font-size:${fontSize}px;color:${color};`;
+    el.innerHTML=word.toUpperCase().split('').map(ch=>`<span class="letter">${ch}</span>`).join('');
+    cell.appendChild(el);
+    container.appendChild(cell);
+
+    wordObjects.push({word,el,wrap:cell,typedCount:0,mistakes:0,x:ox+cellW/2,y:oy+cellH/2});
+  }
+
+  wordObjects.sort(()=>Math.random()-.5);
+  activeIndex=0;
+  activateWord(0);
+  updateHUD();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GAME LOGIC
+// ═══════════════════════════════════════════════════════════════════════════════
+function activateWord(idx) {
+  document.querySelectorAll('.word-tile').forEach(el=>el.classList.remove('active'));
+  document.querySelectorAll('.puzzle-cell').forEach(el=>el.classList.remove('active-piece'));
+  if(idx<wordObjects.length){
+    const obj=wordObjects[idx];
+    obj.el.classList.add('active');
+    obj.wrap.classList.add('active-piece');
+    highlightNextLetter(obj);
+    wordStartTime = Date.now();
+    speakWordThenLetter(obj.word);
+  }
+}
+function highlightNextLetter(obj){
+  obj.el.querySelectorAll('.letter').forEach(l=>l.classList.remove('next-letter'));
+  const letters=obj.el.querySelectorAll('.letter');
+  if(obj.typedCount<letters.length) letters[obj.typedCount].classList.add('next-letter');
+}
+
+document.addEventListener('keydown',(e)=>{
+  ensureMusic();
+  if(e.key==='Tab'||e.key==='Escape'){e.preventDefault();skipWord();return;}
+  if(e.key.length!==1||e.ctrlKey||e.metaKey||e.altKey) return;
+  if(activeIndex>=wordObjects.length) return;
+
+  // Block input while name prompt or leaderboard is showing
+  if(document.getElementById('name-prompt').style.display==='flex') return;
+  if(document.getElementById('leaderboard-screen').style.display==='flex') return;
+
+  const obj=wordObjects[activeIndex];
+  const expected=obj.word[obj.typedCount].toLowerCase();
+  totalKeyPresses++;
+  if(e.key.toLowerCase()===expected){
+    const letters=obj.el.querySelectorAll('.letter');
+    letters[obj.typedCount].classList.add('typed');
+    obj.typedCount++;
+    if(obj.typedCount===obj.word.length) wordComplete(obj);
+    else { highlightNextLetter(obj); speakNextLetter(obj.word[obj.typedCount]); }
+  } else {
+    obj.mistakes=(obj.mistakes||0)+1;
+    totalMistakes++;
+    obj.wrap.style.transform='translateX(-5px)';
+    setTimeout(()=>{
+      obj.wrap.style.transform='translateX(5px)';
+      setTimeout(()=>{obj.wrap.style.transform='';},80);
+    },80);
+  }
+});
+
+// Scoring:
+//   Base = word.length × 20
+//   Accuracy multiplier = correct / (correct + mistakes)  [per word]
+//   Speed bonus: full bonus (1.5×) if typed in under 3s per letter, scales down to 1× at 8s/letter
+function wordComplete(obj){
+  const elapsed = (Date.now() - wordStartTime) / 1000; // seconds
+  const letters  = obj.word.length;
+  const mistakes = obj.mistakes || 0;
+  const correct  = letters; // all letters typed correctly to reach here
+  const accuracy = correct / (correct + mistakes);
+
+  // speed: seconds-per-letter, clamped 0→8
+  const secPerLetter = elapsed / letters;
+  const speedMult = 1 + 0.5 * Math.max(0, 1 - secPerLetter / 8);
+
+  const pts = Math.round(letters * 20 * accuracy * speedMult);
+  score += pts;
+  boardScore += pts;
+
+  obj.wrap.classList.remove('active-piece');
+  obj.wrap.classList.add('completed');
+  playCompleteSound();
+  spawnBurst(obj.x,obj.y);
+
+  const radius=Math.max(window.innerWidth/8,window.innerHeight/5)*1.1;
+  holes.push({x:obj.x,y:obj.y,r:radius});
+  drawOverlay();
+
+  activeIndex++;
+  while(activeIndex<wordObjects.length&&wordObjects[activeIndex].typedCount===wordObjects[activeIndex].word.length)
+    activeIndex++;
+  updateHUD();
+  if(activeIndex>=wordObjects.length) setTimeout(showBoardComplete,600);
+  else activateWord(activeIndex);
+}
+
+function skipWord(){
+  if(activeIndex>=wordObjects.length) return;
+  const obj=wordObjects[activeIndex];
+  obj.typedCount=0;
+  obj.el.querySelectorAll('.letter').forEach(l=>l.classList.remove('typed','next-letter'));
+  activeIndex=(activeIndex+1)%wordObjects.length;
+  activateWord(activeIndex);
+}
+
+const BURSTS=['⭐','🌟','✨','💫','🎉','🦋','🌈','💖','🍭','🌸'];
+function spawnBurst(x,y){
+  const el=document.createElement('div');
+  el.className='burst';
+  el.textContent=BURSTS[Math.floor(Math.random()*BURSTS.length)];
+  el.style.left=x+'px'; el.style.top=y+'px';
+  document.getElementById('game-container').appendChild(el);
+  setTimeout(()=>el.remove(),800);
+}
+function updateHUD(){
+  const rem=wordObjects.filter(o=>o.typedCount<o.word.length).length;
+  document.getElementById('words-left').textContent=rem;
+  document.getElementById('score').textContent=score;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BOARD COMPLETE → name prompt → leaderboard → next board
+// ═══════════════════════════════════════════════════════════════════════════════
+function showBoardComplete(){
+  const steps=25; let step=0;
+  const cx=window.innerWidth/2, cy=window.innerHeight/2;
+  const maxR=Math.sqrt(cx*cx+cy*cy)*1.5;
+  function expand(){
+    step++;
+    holes.push({x:cx+(Math.random()-.5)*300,y:cy+(Math.random()-.5)*300,r:maxR*(step/steps)});
+    drawOverlay();
+    if(step<steps) requestAnimationFrame(expand);
+    else { ctx2d.clearRect(0,0,revealCanvas.width,revealCanvas.height); showNextArrow(); }
+  }
+  expand();
+}
+
+// ── Forward arrow ────────────────────────────────────────────────────────────
+function showNextArrow(){
+  document.getElementById('next-arrow-btn').style.display = 'flex';
+  document.getElementById('next-arrow-btn').style.alignItems = 'center';
+  document.getElementById('next-arrow-btn').style.justifyContent = 'center';
+}
+function hideNextArrow(){
+  document.getElementById('next-arrow-btn').style.display = 'none';
+}
+document.getElementById('next-arrow-btn').addEventListener('click', ()=>{
+  hideNextArrow();
+  showNamePrompt();
+});
+
+// ── Accuracy helper ──────────────────────────────────────────────────────────
+function boardAccuracy(){
+  if(totalKeyPresses===0) return 100;
+  return Math.round(((totalKeyPresses-totalMistakes)/totalKeyPresses)*100);
+}
+
+// ── Step 1: ask for name ─────────────────────────────────────────────────────
+function showNamePrompt(){
+  const acc=boardAccuracy();
+  document.getElementById('name-score-display').textContent=
+    `Score: ${boardScore}  •  Accuracy: ${acc}%`;
+  const inp=document.getElementById('name-input');
+  inp.value='';
+  document.getElementById('name-prompt').style.display='flex';
+  setTimeout(()=>inp.focus(),120);
+}
+
+function submitName(){
+  const inp=document.getElementById('name-input');
+  const name=(inp.value.trim()||'Anonymous');
+  document.getElementById('name-prompt').style.display='none';
+  saveAndShowLeaderboard(name);
+}
+
+document.getElementById('name-submit').addEventListener('click', submitName);
+document.getElementById('name-input').addEventListener('keydown',(e)=>{
+  if(e.key==='Enter') submitName();
+});
+
+// ── Step 2: save to leaderboard and display ───────────────────────────────────
+const LB_KEY='typingGameLeaderboard_v1';
+
+function loadLeaderboard(){
+  try {
+    let data = JSON.parse(localStorage.getItem(LB_KEY)||'[]');
+    // Strip legacy dadScore field and remove dad entries
+    data = data.filter(e => e.name.trim().toLowerCase() !== 'dad');
+    data.forEach(e => { delete e.dadScore; });
+    return data;
+  }
+  catch(e){ return []; }
+}
+function saveLeaderboard(data){
+  try { localStorage.setItem(LB_KEY, JSON.stringify(data)); } catch(e){}
+}
+
+function saveAndShowLeaderboard(name){
+  const board=BOARDS[shuffledOrder[boardIndex]];
+  const acc=boardAccuracy();
+  const entry={
+    name, score:boardScore, accuracy:acc,
+    picture:board.name,
+    grade: selectedGrade,
+    date: new Date().toLocaleDateString()
+  };
+
+  const lb=loadLeaderboard();
+  lb.push(entry);
+  // Sort by score desc, then accuracy desc
+  lb.sort((a,b)=>b.score-a.score||b.accuracy-a.accuracy);
+  saveLeaderboard(lb);
+
+  // Filter to current grade only
+  const gradeEntries = lb.filter(e => e.grade === selectedGrade);
+
+  // Render
+  const isLast=boardIndex>=BOARDS.length-1;
+  const gradeLabel = {K:'Kindergarten','1':'Grade 1','2':'Grade 2','3':'Grade 3','4':'Grade 4','5':'Grade 5'}[selectedGrade]||selectedGrade;
+  document.getElementById('leaderboard-screen').querySelector('h2').textContent=`🏆 ${gradeLabel} Leaderboard`;
+  document.getElementById('lb-pic-label').textContent=
+    `Just revealed: ${board.name}  •  Your score: ${boardScore}  •  Accuracy: ${acc}%`;
+  document.getElementById('lb-next-btn').textContent=isLast?'Play Again 🔄':'Choose Next Grade ⭐';
+
+  const tbody=document.getElementById('lb-body');
+  tbody.innerHTML='';
+  gradeEntries.slice(0,20).forEach((e,i)=>{
+    const tr=document.createElement('tr');
+    const isNew=(e===entry);   // reference equality — the entry we just pushed
+    if(isNew) tr.className='lb-new';
+    tr.innerHTML=`<td class="lb-rank">${i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</td>
+      <td>${e.name}</td>
+      <td>${e.score}</td>
+      <td>${e.accuracy}%</td>
+      <td>${e.picture}</td>`;
+    tbody.appendChild(tr);
+  });
+
+  document.getElementById('leaderboard-screen').style.display='flex';
+}
+
+document.getElementById('lb-next-btn').addEventListener('click',()=>{
+  document.getElementById('leaderboard-screen').style.display='none';
+  document.querySelectorAll('.burst').forEach(el=>el.remove());
+  const isLast=boardIndex>=BOARDS.length-1;
+  if(isLast){score=0;boardScore=0;totalKeyPresses=0;totalMistakes=0;}
+  selectedGrade=null;
+  document.getElementById('grade-prompt').style.display='flex';
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GRADE PICKER
+// ═══════════════════════════════════════════════════════════════════════════════
+document.querySelectorAll('.grade-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    selectedGrade = btn.dataset.grade;
+    document.getElementById('grade-prompt').style.display = 'none';
+    const isFirst = boardIndex === 0 && wordObjects.length === 0;
+    const isLast  = boardIndex >= BOARDS.length - 1;
+    if (isFirst || isLast) {
+      shuffleBoardOrder();
+      loadBoard(0);
+    } else {
+      loadBoard(boardIndex + 1);
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════════════════════
+window.addEventListener('resize',()=>{
+  resizeBgCanvas();resizeRevealCanvas();
+  if(selectedGrade) { paintBoard(boardIndex);scatterWords(); }
+});
+resizeBgCanvas();
+resizeRevealCanvas();
+// Don't load board until grade is chosen — grade-prompt is already visible
+</script>
+</body>
+</html>
