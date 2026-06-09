@@ -263,7 +263,7 @@
   <source src="https://opengameart.org/sites/default/files/happy_adveture.mp3" type="audio/mpeg">
 </audio>
 
-<script>
+<script type="module">
 // ═══════════════════════════════════════════════════════════════════════════════
 // SCENE PAINTERS — each receives (ctx, W, H) and fills the canvas with a
 // richly detailed, fully hand-drawn kid-friendly illustration.
@@ -969,11 +969,11 @@ function showNamePrompt(){
   setTimeout(()=>inp.focus(),120);
 }
 
-function submitName(){
+async function submitName(){
   const inp=document.getElementById('name-input');
   const name=(inp.value.trim()||'Anonymous');
   document.getElementById('name-prompt').style.display='none';
-  saveAndShowLeaderboard(name);
+  await saveAndShowLeaderboard(name);
 }
 
 document.getElementById('name-submit').addEventListener('click', submitName);
@@ -982,56 +982,75 @@ document.getElementById('name-input').addEventListener('keydown',(e)=>{
 });
 
 // ── Step 2: save to leaderboard and display ───────────────────────────────────
-const LB_KEY='typingGameLeaderboard_v1';
 
-function loadLeaderboard(){
-  try {
-    let data = JSON.parse(localStorage.getItem(LB_KEY)||'[]');
-    // Strip legacy dadScore field and remove dad entries
-    data = data.filter(e => e.name.trim().toLowerCase() !== 'dad');
-    data.forEach(e => { delete e.dadScore; });
-    return data;
-  }
-  catch(e){ return []; }
-}
-function saveLeaderboard(data){
-  try { localStorage.setItem(LB_KEY, JSON.stringify(data)); } catch(e){}
-}
+// ── Firebase Firestore leaderboard ───────────────────────────────────────────
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-app.js";
+import { getFirestore, collection, addDoc, getDocs, query, where, orderBy, limit }
+  from "https://www.gstatic.com/firebasejs/11.9.0/firebase-firestore.js";
 
-function saveAndShowLeaderboard(name){
-  const board=BOARDS[shuffledOrder[boardIndex]];
-  const acc=boardAccuracy();
-  const entry={
-    name, score:boardScore, accuracy:acc,
-    picture:board.name,
-    grade: selectedGrade,
-    date: new Date().toLocaleDateString()
+const firebaseConfig = {
+  apiKey: "AIzaSyCar1ktIjKZcvYfoRm336U7V6jIvSvh8Cw",
+  authDomain: "typing-game-a02e6.firebaseapp.com",
+  projectId: "typing-game-a02e6",
+  storageBucket: "typing-game-a02e6.firebasestorage.app",
+  messagingSenderId: "902992112481",
+  appId: "1:902992112481:web:9fcc7de88c52a560723320"
+};
+
+const _fbApp = initializeApp(firebaseConfig);
+const _db    = getFirestore(_fbApp);
+const SCORES_COL = 'scores';
+
+async function saveAndShowLeaderboard(name){
+  const board = BOARDS[shuffledOrder[boardIndex]];
+  const acc   = boardAccuracy();
+
+  // Save new entry to Firestore
+  const entry = {
+    name,
+    score:    boardScore,
+    accuracy: acc,
+    picture:  board.name,
+    grade:    selectedGrade,
+    date:     new Date().toLocaleDateString()
   };
+  try {
+    await addDoc(collection(_db, SCORES_COL), entry);
+  } catch(e) { console.warn('Could not save score:', e); }
 
-  const lb=loadLeaderboard();
-  lb.push(entry);
-  // Sort by score desc, then accuracy desc
-  lb.sort((a,b)=>b.score-a.score||b.accuracy-a.accuracy);
-  saveLeaderboard(lb);
-
-  // Filter to current grade only
-  const gradeEntries = lb.filter(e => e.grade === selectedGrade);
+  // Load top 20 for this grade
+  let gradeEntries = [];
+  try {
+    const q = query(
+      collection(_db, SCORES_COL),
+      where('grade', '==', selectedGrade),
+      orderBy('score', 'desc'),
+      orderBy('accuracy', 'desc'),
+      limit(20)
+    );
+    const snap = await getDocs(q);
+    gradeEntries = snap.docs.map(d => d.data());
+  } catch(e) {
+    console.warn('Could not load leaderboard:', e);
+    gradeEntries = [entry];
+  }
 
   // Render
-  const isLast=boardIndex>=BOARDS.length-1;
-  const gradeLabel = {K:'Kindergarten','1':'Grade 1','2':'Grade 2','3':'Grade 3','4':'Grade 4','5':'Grade 5'}[selectedGrade]||selectedGrade;
-  document.getElementById('leaderboard-screen').querySelector('h2').textContent=`🏆 ${gradeLabel} Leaderboard`;
-  document.getElementById('lb-pic-label').textContent=
+  const isLast   = boardIndex >= BOARDS.length - 1;
+  const gradeLabel = {K:'Kindergarten','1':'Grade 1','2':'Grade 2','3':'Grade 3','4':'Grade 4','5':'Grade 5'}[selectedGrade] || selectedGrade;
+  document.getElementById('leaderboard-screen').querySelector('h2').textContent = `🏆 ${gradeLabel} Leaderboard`;
+  document.getElementById('lb-pic-label').textContent =
     `Just revealed: ${board.name}  •  Your score: ${boardScore}  •  Accuracy: ${acc}%`;
-  document.getElementById('lb-next-btn').textContent=isLast?'Play Again 🔄':'Choose Next Grade ⭐';
+  document.getElementById('lb-next-btn').textContent = isLast ? 'Play Again 🔄' : 'Choose Next Grade ⭐';
 
-  const tbody=document.getElementById('lb-body');
-  tbody.innerHTML='';
-  gradeEntries.slice(0,20).forEach((e,i)=>{
-    const tr=document.createElement('tr');
-    const isNew=(e===entry);   // reference equality — the entry we just pushed
-    if(isNew) tr.className='lb-new';
-    tr.innerHTML=`<td class="lb-rank">${i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</td>
+  const tbody = document.getElementById('lb-body');
+  tbody.innerHTML = '';
+  gradeEntries.forEach((e, i) => {
+    const tr = document.createElement('tr');
+    // Highlight the row if it matches the entry we just submitted
+    if (e.name === entry.name && e.score === entry.score && e.accuracy === entry.accuracy)
+      tr.className = 'lb-new';
+    tr.innerHTML = `<td class="lb-rank">${i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</td>
       <td>${e.name}</td>
       <td>${e.score}</td>
       <td>${e.accuracy}%</td>
@@ -1039,7 +1058,7 @@ function saveAndShowLeaderboard(name){
     tbody.appendChild(tr);
   });
 
-  document.getElementById('leaderboard-screen').style.display='flex';
+  document.getElementById('leaderboard-screen').style.display = 'flex';
 }
 
 document.getElementById('lb-next-btn').addEventListener('click',()=>{
